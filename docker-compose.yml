@@ -1,0 +1,46 @@
+# Layer of docker compose to be run in addition to a host project's docker setup.
+# See the external network config below for requirements.
+
+version: '3'
+services:
+  # After the service is running, find the generated subdomain at https://dashboard.ngrok.com/tunnels/agents
+  ngrok-agent:
+    image: ngrok/ngrok:3.7.0-alpine
+    env_file: ./.env.ngrok
+    command: http http://ngrok-proxy:9001
+    ports:
+      - 4040:4040
+    networks:
+      - ngrok
+
+  # In order to use multiple backend services with ngrok's free plan, this proxies requests based on paths
+  ngrok-proxy:
+    image: nginx:1.23.3-alpine
+    volumes:
+      - ./ngrok-proxy.nginx.conf.template:/etc/nginx/templates/nginx.conf.template
+      # In order to communicate with other services, extra entrypoint logic is added to the folder
+      # that this image uses to concatenate entrypoint files.
+      - ./ngrok-proxy.entrypoint.sh:/docker-entrypoint.d/ngrok-proxy.entrypoint.sh
+    networks:
+      - my_app
+      - ngrok
+
+  # Your local openid server for jwt auth
+  openid:
+    build: ./openid
+    command: bundle exec rackup --host 0.0.0.0 -p 9002
+    environment:
+      - PORT=9002
+    volumes:
+      - ./openid:/home/docker/app
+    ports:
+      - 9002:9002
+    networks:
+      - ngrok
+
+networks:
+  ngrok:
+    driver: bridge
+  # The network shared between your local host app and the proxy to the internet tunnel
+  my_app:
+    external: true
